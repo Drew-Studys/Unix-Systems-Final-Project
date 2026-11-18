@@ -1,0 +1,12 @@
+# Python virtual environment
+venv/
+
+# SQLite database and saved player data
+data/
+
+# Python temporary files
+__pycache__/
+*.pyc
+
+# macOS system files
+.DS_Store
