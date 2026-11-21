@@ -1,6 +1,4 @@
-
 import pygame
-import sqlite3
 import sys
 from pathlib import Path
 
@@ -14,7 +12,10 @@ FPS = 60
 MAX_USERNAME_LENGTH = 16
 
 PROJECT_DIR = Path(__file__).resolve().parent.parent
-DATABASE_PATH = PROJECT_DIR / "data" / "arcade.db"
+if str(PROJECT_DIR) not in sys.path:
+    sys.path.insert(0, str(PROJECT_DIR))
+
+from backend import players as player_backend
 
 BACKGROUND = (15, 23, 42)
 PANEL = (30, 41, 59)
@@ -70,41 +71,12 @@ SELECT_KEYS = (
 # ----------------------------------------
 
 def initialize_database():
-    DATABASE_PATH.parent.mkdir(parents=True, exist_ok=True)
-
-    with sqlite3.connect(DATABASE_PATH) as conn:
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS players (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                username TEXT NOT NULL UNIQUE COLLATE NOCASE,
-                created_at TEXT DEFAULT CURRENT_TIMESTAMP
-            )
-        """)
+    player_backend.initialize_players()
 
 
 def create_player(username):
-    username = username.strip()
-
-    if not username:
-        return False, "Please enter a username."
-
-    if len(username) > MAX_USERNAME_LENGTH:
-        return False, "Username is too long."
-
-    try:
-        with sqlite3.connect(DATABASE_PATH) as conn:
-            conn.execute(
-                "INSERT INTO players (username) VALUES (?)",
-                (username,)
-            )
-
-        return True, f"Player {username} created successfully!"
-
-    except sqlite3.IntegrityError:
-        return False, "That username already exists."
-
-    except sqlite3.Error:
-        return False, "Database error. Please try again."
+    success, message, _ = player_backend.create_account(username)
+    return success, message
 
 
 # ----------------------------------------

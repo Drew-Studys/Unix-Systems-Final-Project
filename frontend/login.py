@@ -1,9 +1,6 @@
-
 import pygame
-import sqlite3
 import subprocess
 import sys
-import json
 from pathlib import Path
 
 # ----------------------------------------
@@ -15,9 +12,13 @@ HEIGHT = 700
 FPS = 60
 
 PROJECT_DIR = Path(__file__).resolve().parent.parent
-DATABASE_PATH = PROJECT_DIR / "data" / "arcade.db"
-SESSION_PATH = PROJECT_DIR / "data" / "active_player.json"
 REGISTER_PATH = Path(__file__).resolve().parent / "register.py"
+MAIN_PATH = Path(__file__).resolve().parent / "main.py"
+
+if str(PROJECT_DIR) not in sys.path:
+    sys.path.insert(0, str(PROJECT_DIR))
+
+from backend import players as player_backend
 
 BACKGROUND = (15, 23, 42)
 PANEL = (30, 41, 59)
@@ -54,37 +55,23 @@ SELECT_KEYS = (
     pygame.K_KP5
 )
 
+SUCCESS_DELAY = 1000
+
 
 # ----------------------------------------
 # DATABASE
 # ----------------------------------------
 
 def get_players():
-    if not DATABASE_PATH.exists():
-        return [], "No player database found."
-
     try:
-        with sqlite3.connect(DATABASE_PATH) as conn:
-            rows = conn.execute(
-                "SELECT id, username FROM players ORDER BY id"
-            ).fetchall()
+        player_backend.initialize_players()
+        accounts = player_backend.get_all_accounts()
+        accounts.sort(key=lambda account: account["id"])
+        return accounts, ""
 
-        players = [
-            {"id": row[0], "username": row[1]}
-            for row in rows
-        ]
-
-        return players, ""
-
-    except sqlite3.Error:
+    except Exception as error:
+        print("Could not load player accounts:", error)
         return [], "Could not load player accounts."
-
-
-def save_active_player(player):
-    SESSION_PATH.parent.mkdir(parents=True, exist_ok=True)
-
-    with open(SESSION_PATH, "w", encoding="utf-8") as file:
-        json.dump(player, file, indent=4)
 
 
 # ----------------------------------------
@@ -122,6 +109,7 @@ class LoginScreen:
         self.running = True
         self.logged_in = False
         self.active_player = None
+        self.success_time = None
 
         self.clickable_rects = []
 
@@ -338,7 +326,7 @@ class LoginScreen:
         )
 
         self.draw_text(
-            "Press ESC to exit",
+            "Opening main menu...",
             self.small_font,
             WHITE,
             (WIDTH // 2, 560)
@@ -378,37 +366,29 @@ class LoginScreen:
     # ------------------------------------
 
     def select_player(self, player):
-        try:
-            save_active_player({
-                "id": player["id"],
-                "username": player["username"],
-                "guest": False
-            })
+        success, message, session = player_backend.login_player(
+            player["id"]
+        )
 
-            self.active_player = player
+        if success:
+            self.active_player = session
             self.logged_in = True
+            self.success_time = pygame.time.get_ticks()
 
-        except OSError:
-            self.message = "Could not save player session."
+        else:
+            self.message = message
             self.message_color = RED
 
     def select_guest(self):
-        try:
-            save_active_player({
-                "id": None,
-                "username": "GUEST",
-                "guest": True
-            })
+        success, message, session = player_backend.login_guest()
 
-            self.active_player = {
-                "id": None,
-                "username": "GUEST"
-            }
-
+        if success:
+            self.active_player = session
             self.logged_in = True
+            self.success_time = pygame.time.get_ticks()
 
-        except OSError:
-            self.message = "Could not start guest session."
+        else:
+            self.message = message
             self.message_color = RED
 
     # ------------------------------------
@@ -441,6 +421,8 @@ class LoginScreen:
             self.screen = pygame.display.set_mode(
                 (WIDTH, HEIGHT)
             )
+            pygame.display.set_caption("IUP Arcade - Login")
+            pygame.event.clear()
 
     # ------------------------------------
     # JOYSTICK
@@ -522,13 +504,44 @@ class LoginScreen:
     def run(self):
         while self.running:
             self.handle_events()
-            self.draw()
-            self.clock.tick(FPS)
+
+            if self.logged_in and self.success_time is not None:
+                elapsed = (
+                    pygame.time.get_ticks() - self.success_time
+                )
+
+                if elapsed >= SUCCESS_DELAY:
+                    self.running = False
+
+            if self.running:
+                self.draw()
+                self.clock.tick(FPS)
 
         pygame.quit()
 
 
+# ----------------------------------------
+# START PROGRAM
+# ----------------------------------------
+
 if __name__ == "__main__":
     login = LoginScreen()
     login.run()
+
+    # main.py uses --select-only when switching players.
+    # In that case, return to the existing main menu.
+    selection_only = "--select-only" in sys.argv
+
+    if login.logged_in and not selection_only:
+
+        if MAIN_PATH.exists():
+            subprocess.run(
+                [sys.executable, str(MAIN_PATH)],
+                cwd=str(PROJECT_DIR),
+                check=False
+            )
+
+        else:
+            print("Could not find main.py.")
+
     sys.exit(0)
